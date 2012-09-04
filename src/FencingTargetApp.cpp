@@ -28,7 +28,7 @@ static const string FORMAT_OF_ACCELEROMETER = "acc:(\\d+),(\\d+),(\\d+)";
 //static const string INPUT_FILE = "/dev/tty.usbmodem1411";	// left USB port
 static const string INPUT_FILE = "/dev/tty.usbmodem1421";	// right USB port
 
-static const size_t NUM_ACCELEROMETER_READINGS = 800;
+static const size_t NUM_ACCELEROMETER_READINGS = 600;
 
 
 class FencingTargetApp : public AppBasic {
