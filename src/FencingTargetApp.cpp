@@ -6,6 +6,7 @@ using namespace std;
 #include <boost/asio.hpp>
 #include <boost/bind.hpp>
 #include <boost/circular_buffer.hpp>
+#include <boost/filesystem.hpp>
 #include <boost/foreach.hpp>
 #include <boost/function.hpp>
 #include <boost/lambda/lambda.hpp>
@@ -16,6 +17,7 @@ using namespace boost::asio;
 
 #include "cinder/app/AppBasic.h"
 #include "cinder/gl/gl.h"
+#include "cinder/params/Params.h"
 using namespace ci;
 using namespace ci::app;
 
@@ -37,6 +39,7 @@ public:
 	void update();
 	void drawAccelerometerReadings(boost::function<float (Vec3f)> getValueGivenAccelReading);
 	void draw();
+	virtual void keyDown(KeyEvent event);
 	
 private:
 	// Accelerometer-reading stuff:
@@ -49,6 +52,9 @@ private:
 	
 	// Parsed data from the accelerometer:
 	boost::circular_buffer<Vec3f> accelerometerReadings_;
+	
+	// Parameter-changing view:
+	cinder::params::InterfaceGl params_gui_;
 };
 
 FencingTargetApp::FencingTargetApp() : port_(io_) {
@@ -64,16 +70,26 @@ void FencingTargetApp::setup() {
 	accelerometerReadings_.set_capacity(NUM_ACCELEROMETER_READINGS);
 	
 	// Initialize the serial port:
-	port_.open(INPUT_FILE);
+	try {
+		port_.open(INPUT_FILE);
+	} catch (std::exception & e) {
+		cerr << "ERROR: Unable to open device at '" << INPUT_FILE << "', error=\"" << e.what() << "\"\n";
+	}
 	// TODO: make sure INPUT_FILE was opened correctly.  If not, fail gracefully.
-	port_.set_option(serial_port::baud_rate(115200));
-	port_.set_option(serial_port::character_size(8));
-	port_.set_option(serial_port::flow_control(serial_port::flow_control::none));
-	port_.set_option(serial_port::parity(serial_port::parity::none));
-	port_.set_option(serial_port::stop_bits(serial_port::stop_bits::one));
+	if (port_.is_open()) {
+		port_.set_option(serial_port::baud_rate(115200));
+		port_.set_option(serial_port::character_size(8));
+		port_.set_option(serial_port::flow_control(serial_port::flow_control::none));
+		port_.set_option(serial_port::parity(serial_port::parity::none));
+		port_.set_option(serial_port::stop_bits(serial_port::stop_bits::one));
+		
+		// Request data from the Arduino:
+		requestAsyncReadFromArduino();
+	}
 	
-	// Request data from the Arduino:
-	requestAsyncReadFromArduino();
+	// Init parameters, and a gui to alter them;
+	params_gui_ = cinder::params::InterfaceGl("Parameters", cinder::Vec2i(250, 500));
+	params_gui_.hide();
 }
 
 void FencingTargetApp::requestAsyncReadFromArduino() {
@@ -129,7 +145,9 @@ bool FencingTargetApp::parseLineOfRawAccelerometerData(const string & s, cinder:
 
 void FencingTargetApp::update() {
 	// Process incoming data from the Arduino, if any is available:
-	io_.poll();
+	if (port_.is_open()) {
+		io_.poll();
+	}
 }
 
 void FencingTargetApp::drawAccelerometerReadings(boost::function<float (Vec3f)> getValueGivenAccelReading) {
@@ -176,6 +194,19 @@ void FencingTargetApp::draw() {
 	drawAccelerometerReadings(boost::bind(&Vec3f::length, boost::lambda::_1));
 	gl::popMatrices();
 
+	// Draw the gui of parameters:
+	params::InterfaceGl::draw();
+}
+
+void FencingTargetApp::keyDown(KeyEvent event) {
+	switch (event.getCode()) {
+		case KeyEvent::KEY_SPACE:
+			params_gui_.show( ! params_gui_.isVisible() );
+			break;
+		
+		default:
+			break;
+	}
 }
 
 
