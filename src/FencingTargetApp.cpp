@@ -51,10 +51,16 @@ private:
 	boost::asio::streambuf buffer_;
 	
 	// Parsed data from the accelerometer:
-	boost::circular_buffer<Vec3f> accelerometerReadings_;
+	boost::circular_buffer<Vec3f> rawAccelerometerReadings_;
+	Vec3f transformReading(Vec3f rawReading) const;
+
+	// Adjustable parameters, Data:
+	float pre_offset_;
+	float post_scale_;
 	
-	// Parameter-changing view:
+	// Adjustable parameters, GUI:
 	cinder::params::InterfaceGl params_gui_;
+	float draw_scale_;
 };
 
 FencingTargetApp::FencingTargetApp() : port_(io_) {
@@ -67,7 +73,7 @@ void FencingTargetApp::prepareSettings(Settings * settings) {
 
 void FencingTargetApp::setup() {
 	// Set aside enough data for accelerometer readings:
-	accelerometerReadings_.set_capacity(NUM_ACCELEROMETER_READINGS);
+	rawAccelerometerReadings_.set_capacity(NUM_ACCELEROMETER_READINGS);
 	
 	// Initialize the serial port:
 	try {
@@ -87,9 +93,27 @@ void FencingTargetApp::setup() {
 		requestAsyncReadFromArduino();
 	}
 	
-	// Init parameters, and a gui to alter them;
+	// Init parameters, data:
+	pre_offset_ = -128.0f;
+	post_scale_ = 1.0f;
+	
+	// Init parameters, GUI:
+	draw_scale_ = -1.0;
+	
+	// Init the parameter-changing GUI:
 	params_gui_ = cinder::params::InterfaceGl("Parameters", cinder::Vec2i(250, 500));
-	params_gui_.hide();
+
+	params_gui_.addText("DATA, PRE:");
+	params_gui_.addParam("Offset", &pre_offset_, "min=-300 max=300 step=1");
+
+	params_gui_.addSeparator();
+	params_gui_.addText("DATA, POST:");
+	params_gui_.addParam("Scale", &post_scale_, "min=0.01 max=2.0 step=0.01");
+	
+	params_gui_.addSeparator();
+	params_gui_.addText("DRAWING:");
+	params_gui_.addParam("Draw Scale", &draw_scale_, "min=-40.0 max=-0.01 step=0.01");
+	//params_gui_.hide();
 }
 
 void FencingTargetApp::requestAsyncReadFromArduino() {
@@ -118,7 +142,7 @@ void FencingTargetApp::handleInputFromArduino(const boost::system::error_code & 
 	Vec3f accelerometerReading;
 	if (parseLineOfRawAccelerometerData(line, accelerometerReading)) {
 		cout << accelerometerReading << endl;
-		accelerometerReadings_.push_back(accelerometerReading);
+		rawAccelerometerReadings_.push_back(accelerometerReading);
 	}
 	
 	// Request more data from the Arduino:
@@ -150,13 +174,19 @@ void FencingTargetApp::update() {
 	}
 }
 
+Vec3f FencingTargetApp::transformReading(Vec3f rawReading) const {
+	Vec3f pre_offset_vector(pre_offset_, pre_offset_, pre_offset_);
+	return (rawReading + pre_offset_vector) * post_scale_;
+}
+
 void FencingTargetApp::drawAccelerometerReadings(boost::function<float (Vec3f)> getValueGivenAccelReading) {
 	gl::begin(GL_TRIANGLE_STRIP);
 	int i = 0;
-	BOOST_FOREACH(Vec3f fullReading, accelerometerReadings_) {
+	BOOST_FOREACH(Vec3f fullReading, rawAccelerometerReadings_) {
 		gl::vertex(i, 0);
-		const float interpretedReading = getValueGivenAccelReading(fullReading);
-		gl::vertex(i, -0.5f * interpretedReading);
+		const Vec3f transformedReading = this->transformReading(fullReading);
+		const float interpretedReading = getValueGivenAccelReading(transformedReading);
+		gl::vertex(i, draw_scale_ * interpretedReading);
 		i++;
 	}
 	gl::end();
@@ -165,33 +195,40 @@ void FencingTargetApp::drawAccelerometerReadings(boost::function<float (Vec3f)> 
 void FencingTargetApp::draw() {
 	// Clear the window:
 	gl::clear(Color::white());
+	
+	// Draw graphs:
+	gl::pushMatrices();
+	gl::translate(350, 0);
 
 	// Draw X:
 	gl::color(Color8u::hex(0xFF0000));
 	gl::pushMatrices();
-	gl::translate(100, 150);
+	gl::translate(0, 150);
 	drawAccelerometerReadings(boost::bind(&Vec3f::x, boost::lambda::_1));
 	gl::popMatrices();
 
 	// Draw Y:
 	gl::color(Color8u::hex(0x00FF00));
 	gl::pushMatrices();
-	gl::translate(100, 300);
+	gl::translate(0, 300);
 	drawAccelerometerReadings(boost::bind(&Vec3f::y, boost::lambda::_1));
 	gl::popMatrices();
 
 	// Draw Z:
 	gl::color(Color8u::hex(0x0000FF));
 	gl::pushMatrices();
-	gl::translate(100, 450);
+	gl::translate(0, 450);
 	drawAccelerometerReadings(boost::bind(&Vec3f::z, boost::lambda::_1));
 	gl::popMatrices();
 	
 	// Draw length:
 	gl::color(Color8u::hex(0x000000));
 	gl::pushMatrices();
-	gl::translate(100, 700);
+	gl::translate(0, 700);
 	drawAccelerometerReadings(boost::bind(&Vec3f::length, boost::lambda::_1));
+	gl::popMatrices();
+	
+	// Finish drawing graphs:
 	gl::popMatrices();
 
 	// Draw the gui of parameters:
