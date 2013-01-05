@@ -17,6 +17,7 @@ using namespace boost::asio;
 
 #include "cinder/app/AppBasic.h"
 #include "cinder/gl/gl.h"
+#include "cinder/gl/TextureFont.h"
 #include "cinder/params/Params.h"
 using namespace ci;
 using namespace ci::app;
@@ -25,8 +26,8 @@ using namespace ci::app;
 //static const string INPUT_FILE = "/Users/davidl/Documents/Code/cinder/FencingTarget/FencingTarget/assets/shortfakedata.dat";
 
 static const string FORMAT_OF_ACCELEROMETER = "acc:(\\d+),(\\d+),(\\d+)";
-//static const string INPUT_FILE = "/dev/tty.usbmodem1411";	// left USB port
-static const string INPUT_FILE = "/dev/tty.usbmodem1421";	// right USB port
+static const string INPUT_FILE = "/dev/tty.usbmodem1411";	// left USB port
+//static const string INPUT_FILE = "/dev/tty.usbmodem1421";	// right USB port
 
 static const size_t NUM_ACCELEROMETER_READINGS = 600;
 
@@ -37,7 +38,9 @@ public:
 	void prepareSettings(Settings * settings);
 	void setup();
 	void update();
-	void drawAccelerometerReadings(boost::function<float (Vec3f)> getValueGivenAccelReading);
+	void drawAccelerometerReadings(const string & label,
+								   const Color8u & color,
+								   boost::function<float (Vec3f)> getValueGivenAccelReading);
 	void draw();
 	virtual void keyDown(KeyEvent event);
 	
@@ -61,6 +64,15 @@ private:
 	// Adjustable parameters, GUI:
 	cinder::params::InterfaceGl params_gui_;
 	float draw_scale_;
+	
+	// Text-drawing:
+	Font font_;
+	gl::TextureFontRef textureFont_;
+	
+//	gl::Texture x_label_;
+//	gl::Texture y_label_;
+//	gl::Texture z_label_;
+//	gl::Texture length_label_;
 };
 
 FencingTargetApp::FencingTargetApp() : port_(io_) {
@@ -114,6 +126,10 @@ void FencingTargetApp::setup() {
 	params_gui_.addText("DRAWING:");
 	params_gui_.addParam("Draw Scale", &draw_scale_, "min=-40.0 max=-0.01 step=0.01");
 	//params_gui_.hide();
+	
+	// Init labels:
+	font_ = Font( "BigCaslon-Medium", 24 ); //Font("Arial", 24);
+	textureFont_ = gl::TextureFont::create(font_);
 }
 
 void FencingTargetApp::requestAsyncReadFromArduino() {
@@ -179,7 +195,14 @@ Vec3f FencingTargetApp::transformReading(Vec3f rawReading) const {
 	return (rawReading + pre_offset_vector) * post_scale_;
 }
 
-void FencingTargetApp::drawAccelerometerReadings(boost::function<float (Vec3f)> getValueGivenAccelReading) {
+void FencingTargetApp::drawAccelerometerReadings(const string & label,
+												 const Color8u & color,
+												 boost::function<float (Vec3f)> getValueGivenAccelReading)
+{
+	gl::color(color);
+	gl::pushMatrices();
+	textureFont_->drawString(label, Vec2f::zero());
+	gl::translate(30, 0.5);
 	gl::begin(GL_TRIANGLE_STRIP);
 	int i = 0;
 	BOOST_FOREACH(Vec3f fullReading, rawAccelerometerReadings_) {
@@ -190,42 +213,54 @@ void FencingTargetApp::drawAccelerometerReadings(boost::function<float (Vec3f)> 
 		i++;
 	}
 	gl::end();
+
+	gl::color(Color8u::hex(0xFFFFFF));
+	gl::drawLine(Vec2f(0,0),Vec2f(rawAccelerometerReadings_.capacity(),0));
+
+	gl::popMatrices();
 }
 
 void FencingTargetApp::draw() {
+	// Setup GL states:
+	gl::enableAlphaBlending();
+
 	// Clear the window:
-	gl::clear(Color::white());
+	gl::clear(Color::black());
 	
 	// Draw graphs:
 	gl::pushMatrices();
 	gl::translate(350, 0);
 
 	// Draw X:
-	gl::color(Color8u::hex(0xFF0000));
 	gl::pushMatrices();
 	gl::translate(0, 150);
-	drawAccelerometerReadings(boost::bind(&Vec3f::x, boost::lambda::_1));
+	drawAccelerometerReadings("X:",
+							  Color8u::hex(0xFF0000),
+							  boost::bind(&Vec3f::x, boost::lambda::_1));
 	gl::popMatrices();
 
 	// Draw Y:
-	gl::color(Color8u::hex(0x00FF00));
 	gl::pushMatrices();
 	gl::translate(0, 300);
-	drawAccelerometerReadings(boost::bind(&Vec3f::y, boost::lambda::_1));
+	drawAccelerometerReadings("Y:",
+							  Color8u::hex(0x00FF00),
+							  boost::bind(&Vec3f::y, boost::lambda::_1));
 	gl::popMatrices();
 
 	// Draw Z:
-	gl::color(Color8u::hex(0x0000FF));
 	gl::pushMatrices();
 	gl::translate(0, 450);
-	drawAccelerometerReadings(boost::bind(&Vec3f::z, boost::lambda::_1));
+	drawAccelerometerReadings("Z:",
+							  Color8u::hex(0x0000FF),
+							  boost::bind(&Vec3f::z, boost::lambda::_1));
 	gl::popMatrices();
 	
 	// Draw length:
-	gl::color(Color8u::hex(0x000000));
 	gl::pushMatrices();
 	gl::translate(0, 700);
-	drawAccelerometerReadings(boost::bind(&Vec3f::length, boost::lambda::_1));
+	drawAccelerometerReadings("A:",
+							  Color8u::hex(0xFFFFFF),
+							  boost::bind(&Vec3f::length, boost::lambda::_1));
 	gl::popMatrices();
 	
 	// Finish drawing graphs:
