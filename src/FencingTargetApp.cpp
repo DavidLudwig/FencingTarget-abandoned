@@ -26,10 +26,10 @@ using namespace ci::app;
 //static const string INPUT_FILE = "/Users/davidl/Documents/Code/cinder/FencingTarget/FencingTarget/assets/shortfakedata.dat";
 
 static const string FORMAT_OF_ACCELEROMETER = "acc:(\\d+),(\\d+),(\\d+)";
-static const string INPUT_FILE = "/dev/tty.usbmodem1411";	// left USB port
-//static const string INPUT_FILE = "/dev/tty.usbmodem1421";	// right USB port
+//static const string INPUT_FILE = "/dev/tty.usbmodem1411";	// left USB port
+static const string INPUT_FILE = "/dev/tty.usbmodem1421";	// right USB port
 
-static const size_t NUM_ACCELEROMETER_READINGS = 600;
+static const size_t NUM_ACCELEROMETER_READINGS = 300; //600;
 
 
 class FencingTargetApp : public AppBasic {
@@ -40,7 +40,15 @@ public:
 	void update();
 	void drawAccelerometerReadings(const string & label,
 								   const Color8u & color,
-								   boost::function<float (Vec3f)> getValueGivenAccelReading);
+								   boost::function<float (Vec3f)> getValueGivenAccelReading,
+								   const boost::circular_buffer<Vec3f> & rawReadings);
+	float runningAverageFromRaw(Vec3f rawReading);
+	float calculateRunningAverage(float input, float influenceCoefficient);
+	float shockFromRaw(Vec3f rawReading);
+
+//	void drawAccelerometerReadingsAsLine(const string & label,
+//								   const Color8u & color,
+//								   boost::function<float (Vec3f)> getValueGivenAccelReading);
 	void draw();
 	virtual void keyDown(KeyEvent event);
 	
@@ -57,6 +65,8 @@ private:
 	boost::circular_buffer<Vec3f> rawAccelerometerReadings_;
 	Vec3f transformReading(Vec3f rawReading) const;
 
+	float lastAverage = 0.0f;
+
 	// Adjustable parameters, Data:
 	float pre_offset_;
 	float post_scale_;
@@ -64,6 +74,7 @@ private:
 	// Adjustable parameters, GUI:
 	cinder::params::InterfaceGl params_gui_;
 	float draw_scale_;
+	float influenceCoefficient_;
 	
 	// Text-drawing:
 	Font font_;
@@ -108,6 +119,7 @@ void FencingTargetApp::setup() {
 	// Init parameters, data:
 	pre_offset_ = -128.0f;
 	post_scale_ = 1.0f;
+	influenceCoefficient_ = 0.15f;
 	
 	// Init parameters, GUI:
 	draw_scale_ = -1.0;
@@ -121,6 +133,7 @@ void FencingTargetApp::setup() {
 	params_gui_.addSeparator();
 	params_gui_.addText("DATA, POST:");
 	params_gui_.addParam("Scale", &post_scale_, "min=0.01 max=2.0 step=0.01");
+	params_gui_.addParam("Influence Co.", &influenceCoefficient_, "min=0.0 max=1.0 step=0.01");
 	
 	params_gui_.addSeparator();
 	params_gui_.addText("DRAWING:");
@@ -195,9 +208,18 @@ Vec3f FencingTargetApp::transformReading(Vec3f rawReading) const {
 	return (rawReading + pre_offset_vector) * post_scale_;
 }
 
+//class RunningAverage
+//{
+//public:
+//	RunningAverage(boost::function<float (Vec3f) source) : m_Source(source) {
+//		
+//	}
+//};
+
 void FencingTargetApp::drawAccelerometerReadings(const string & label,
 												 const Color8u & color,
-												 boost::function<float (Vec3f)> getValueGivenAccelReading)
+												 boost::function<float (Vec3f)> getValueGivenAccelReading,
+												 const boost::circular_buffer<Vec3f> & rawReadings)
 {
 	gl::color(color);
 	gl::pushMatrices();
@@ -205,22 +227,50 @@ void FencingTargetApp::drawAccelerometerReadings(const string & label,
 	gl::translate(30, 0.5);
 	gl::begin(GL_TRIANGLE_STRIP);
 	int i = 0;
-	BOOST_FOREACH(Vec3f fullReading, rawAccelerometerReadings_) {
-		gl::vertex(i, 0);
+	BOOST_FOREACH(Vec3f fullReading, rawReadings) {
+		gl::vertex(i * 2, 0);
 		const Vec3f transformedReading = this->transformReading(fullReading);
 		const float interpretedReading = getValueGivenAccelReading(transformedReading);
-		gl::vertex(i, draw_scale_ * interpretedReading);
+		//const float readingWithSomeFunctionApplied = functionThatYouGetSomehow(interpretedReading);
+		//...
+		//...
+		gl::vertex(i * 2, draw_scale_ * interpretedReading);
 		i++;
 	}
 	gl::end();
 
 	gl::color(Color8u::hex(0xFFFFFF));
-	gl::drawLine(Vec2f(0,0),Vec2f(rawAccelerometerReadings_.capacity(),0));
+	gl::drawLine(Vec2f(0,0),Vec2f(300, 0)); //rawAccelerometerReadings_.capacity(),0));
 
 	gl::popMatrices();
 }
 
+float FencingTargetApp::runningAverageFromRaw(Vec3f rawReading)
+{
+	//const Vec3f transformedReading = this->transformReading(rawReading);
+	float valueFromYAxis = rawReading.x; //transformedReading.y;
+	return calculateRunningAverage(valueFromYAxis, influenceCoefficient_);
+}
+
+float FencingTargetApp::calculateRunningAverage(float input, float influenceCoefficient)
+{
+	//...
+	float result = (input * influenceCoefficient) + (lastAverage * (1 - influenceCoefficient));
+	lastAverage = result;
+	return result;
+}
+
+float FencingTargetApp::shockFromRaw(Vec3f rawReading)
+{
+	//float
+	float y = rawReading.x; //transformedReading.y;
+	float ySmooth = calculateRunningAverage(y, influenceCoefficient_); //0.15f);
+	return y - ySmooth;
+}
+
 void FencingTargetApp::draw() {
+	lastAverage = 0.0f;
+
 	// Setup GL states:
 	gl::enableAlphaBlending();
 
@@ -231,12 +281,14 @@ void FencingTargetApp::draw() {
 	gl::pushMatrices();
 	gl::translate(350, 0);
 
+#if 0
 	// Draw X:
 	gl::pushMatrices();
 	gl::translate(0, 150);
 	drawAccelerometerReadings("X:",
 							  Color8u::hex(0xFF0000),
-							  boost::bind(&Vec3f::x, boost::lambda::_1));
+							  boost::bind(&Vec3f::x, boost::lambda::_1),
+							  rawAccelerometerReadings_);
 	gl::popMatrices();
 
 	// Draw Y:
@@ -244,7 +296,8 @@ void FencingTargetApp::draw() {
 	gl::translate(0, 300);
 	drawAccelerometerReadings("Y:",
 							  Color8u::hex(0x00FF00),
-							  boost::bind(&Vec3f::y, boost::lambda::_1));
+							  boost::bind(&Vec3f::y, boost::lambda::_1),
+							  rawAccelerometerReadings_);
 	gl::popMatrices();
 
 	// Draw Z:
@@ -252,15 +305,47 @@ void FencingTargetApp::draw() {
 	gl::translate(0, 450);
 	drawAccelerometerReadings("Z:",
 							  Color8u::hex(0x0000FF),
-							  boost::bind(&Vec3f::z, boost::lambda::_1));
+							  boost::bind(&FencingTargetApp::runningAverageFromRaw, this, boost::lambda::_1), //boost::bind(&Vec3f::z, boost::lambda::_1),
+							  rawAccelerometerReadings_);
 	gl::popMatrices();
+#endif
+	
+#if 1
+	// Draw Y:
+	gl::pushMatrices();
+	gl::translate(0, 150);
+	drawAccelerometerReadings("Y :",
+							  Color8u::hex(0xFF0000),
+							  boost::bind(&Vec3f::x, boost::lambda::_1),
+							  rawAccelerometerReadings_);
+	gl::popMatrices();
+				
+	// Draw Y smooth:
+	gl::pushMatrices();
+	gl::translate(0, 300);
+	drawAccelerometerReadings("Ys:",
+							  Color8u::hex(0x00FF00),
+							  boost::bind(&FencingTargetApp::runningAverageFromRaw, this, boost::lambda::_1), //boost::bind(&Vec3f::z, boost::lambda::_1),
+							  rawAccelerometerReadings_);
+	gl::popMatrices();
+	
+	// Draw Y shock:
+	gl::pushMatrices();
+	gl::translate(0, 450);
+	drawAccelerometerReadings("Y!:",
+							  Color8u::hex(0x0000FF),
+							  boost::bind(&FencingTargetApp::shockFromRaw, this, boost::lambda::_1), //boost::bind(&Vec3f::z, boost::lambda::_1),
+							  rawAccelerometerReadings_);
+	gl::popMatrices();
+#endif
 	
 	// Draw length:
 	gl::pushMatrices();
 	gl::translate(0, 700);
 	drawAccelerometerReadings("A:",
 							  Color8u::hex(0xFFFFFF),
-							  boost::bind(&Vec3f::length, boost::lambda::_1));
+							  boost::bind(&Vec3f::length, boost::lambda::_1),
+							  rawAccelerometerReadings_);
 	gl::popMatrices();
 	
 	// Finish drawing graphs:
